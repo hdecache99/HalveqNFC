@@ -76,6 +76,8 @@ function TrendChart({ values, labels }: { values: number[]; labels: string[] }) 
 function PublicTagPage({ slug }: { slug: string }) {
   const [profile, setProfile] = useState<{ tag: { name: string; client_name: string }; links: PublicLink[] } | null>(null)
   const [error, setError] = useState('')
+  const [nfcStatus, setNfcStatus] = useState('')
+
   useEffect(() => {
     if (!supabase) return
     const visitorKey = localStorage.getItem('pulsetag-visitor') ?? crypto.randomUUID()
@@ -86,9 +88,57 @@ function PublicTagPage({ slug }: { slug: string }) {
       else setProfile(data as { tag: { name: string; client_name: string }; links: PublicLink[] })
     })
   }, [slug])
+
+  useEffect(() => {
+    if (!('NDEFReader' in window)) {
+      setNfcStatus('NFC no disponible aquí. Usa Chrome en Android y prueba acercando un tag.')
+      return
+    }
+
+    const controller = new AbortController()
+    const { signal } = controller
+    const runNfcReader = async () => {
+      try {
+        const NDEFReaderCtor = (window as typeof window & { NDEFReader?: new () => { scan: () => Promise<void>; onreading: ((event: { message: { records: Array<{ recordType?: string; data?: ArrayBuffer; mediaType?: string; id?: string }> } }) => void) | null } }).NDEFReader
+        if (!NDEFReaderCtor) {
+          setNfcStatus('NFC no disponible aquí. Usa Chrome en Android y prueba acercando un tag.')
+          return
+        }
+
+        const reader = new NDEFReaderCtor()
+        await reader.scan()
+        setNfcStatus('NFC listo: acerca tu etiqueta a la parte trasera del móvil.')
+
+        reader.onreading = ({ message }) => {
+          const urlRecord = message.records.find((record) => record.recordType === 'url' || record.mediaType === 'text/plain')
+          if (!urlRecord || !urlRecord.data) return
+
+          const decoder = new TextDecoder()
+          const maybeUrl = decoder.decode(urlRecord.data)
+          const normalized = maybeUrl.startsWith('http') ? maybeUrl : `https://${maybeUrl}`
+          const targetUrl = `${window.location.origin}/t/${encodeURIComponent(slug)}`
+
+          if (normalized === targetUrl || normalized.includes(`/t/${slug}`) || normalized === `${window.location.origin}/t/${slug}`) {
+            window.location.href = targetUrl
+            return
+          }
+
+          if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
+            window.location.href = normalized
+          }
+        }
+      } catch {
+        setNfcStatus('NFC disponible solo en Chrome Android. En desktop no se activa al acercar el móvil.')
+      }
+    }
+
+    void runNfcReader()
+    return () => controller.abort()
+  }, [slug])
+
   if (error) return <main className="public-tag-page"><div className="public-card"><span className="brand-mark"><QrCode size={21} /></span><h1>Perfil no disponible</h1><p>{error}</p></div></main>
   if (!profile) return <main className="public-tag-page"><div className="public-card"><span className="brand-mark"><QrCode size={21} /></span><p>Cargando perfil...</p></div></main>
-  return <main className="public-tag-page"><div className="public-card"><span className="public-logo"><QrCode size={20} /></span><p className="eyebrow">{profile.tag.client_name}</p><h1>{profile.tag.name}</h1><p className="public-subtitle">Encuéntranos en nuestros canales oficiales</p><div className="public-links">{profile.links.map((link) => <a key={link.id} href={link.url} target="_blank" rel="noreferrer" onClick={() => void supabase?.rpc('register_link_click', { link: link.id, visitor: localStorage.getItem('pulsetag-visitor') })}>{link.label}<ArrowUpRight size={16} /></a>)}</div><small>Enlaces · por PulseTag</small></div></main>
+  return <main className="public-tag-page"><div className="public-card"><span className="public-logo"><QrCode size={20} /></span><p className="eyebrow">{profile.tag.client_name}</p><h1>{profile.tag.name}</h1><p className="public-subtitle">Encuéntranos en nuestros canales oficiales</p>{nfcStatus && <p className="public-subtitle" style={{ fontSize: 12, marginTop: 8, opacity: 0.8 }}>{nfcStatus}</p>}<div className="public-links">{profile.links.map((link) => <a key={link.id} href={link.url} target="_blank" rel="noreferrer" onClick={() => void supabase?.rpc('register_link_click', { link: link.id, visitor: localStorage.getItem('pulsetag-visitor') })}>{link.label}<ArrowUpRight size={16} /></a>)}</div><small>Enlaces · por PulseTag</small></div></main>
 }
 
 function TagSetupView({ workspaceId, storeId, tags, setTags, showNotice }: { workspaceId: string | null; storeId: string | null; tags: NfcTag[]; setTags: Dispatch<SetStateAction<NfcTag[]>>; showNotice: (message: string) => void }) {
