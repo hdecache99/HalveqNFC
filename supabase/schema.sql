@@ -186,6 +186,16 @@ returns boolean language sql security definer set search_path = public as $$
   select exists (select 1 from public.stores s where s.id = target_store and (public.is_workspace_admin(s.workspace_id) or public.is_store_member(s.id)));
 $$;
 
+revoke execute on function public.bootstrap_first_user() from public, anon, authenticated;
+revoke execute on function public.is_workspace_member(uuid) from public, anon, authenticated;
+revoke execute on function public.is_workspace_admin(uuid) from public, anon, authenticated;
+revoke execute on function public.is_store_member(uuid) from public, anon, authenticated;
+revoke execute on function public.can_manage_store(uuid) from public, anon, authenticated;
+grant execute on function public.is_workspace_member(uuid) to authenticated;
+grant execute on function public.is_workspace_admin(uuid) to authenticated;
+grant execute on function public.is_store_member(uuid) to authenticated;
+grant execute on function public.can_manage_store(uuid) to authenticated;
+
 revoke update (workspace_id, user_id) on public.workspace_members from authenticated;
 revoke delete on public.workspace_members from authenticated;
 
@@ -195,6 +205,9 @@ drop policy if exists "admins can update workspace members" on public.workspace_
 drop policy if exists "members can view workspaces" on public.workspaces;
 drop policy if exists "members can view profiles" on public.linktree_profiles;
 drop policy if exists "admins can manage profiles" on public.linktree_profiles;
+drop policy if exists "admins can insert profiles" on public.linktree_profiles;
+drop policy if exists "admins can update profiles" on public.linktree_profiles;
+drop policy if exists "admins can delete profiles" on public.linktree_profiles;
 drop policy if exists "members can view tags" on public.nfc_tags;
 drop policy if exists "admins can manage tags" on public.nfc_tags;
 drop policy if exists "admins can insert tags" on public.nfc_tags;
@@ -212,7 +225,9 @@ drop policy if exists "members can view link clicks" on public.nfc_link_clicks;
 
 create policy "members can view workspaces" on public.workspaces for select using (public.is_workspace_member(id));
 create policy "members can view profiles" on public.linktree_profiles for select using (public.is_workspace_member(workspace_id) and (public.is_workspace_admin(workspace_id) or public.is_store_member(store_id)));
-create policy "admins can manage profiles" on public.linktree_profiles for all using (public.can_manage_store(store_id)) with check (public.can_manage_store(store_id));
+create policy "admins can insert profiles" on public.linktree_profiles for insert with check (public.can_manage_store(store_id));
+create policy "admins can update profiles" on public.linktree_profiles for update using (public.can_manage_store(store_id)) with check (public.can_manage_store(store_id));
+create policy "admins can delete profiles" on public.linktree_profiles for delete using (public.can_manage_store(store_id));
 create policy "members can view workspace members" on public.workspace_members for select using (public.is_workspace_member(workspace_id));
 create policy "admins can update workspace members" on public.workspace_members for update using (public.is_workspace_admin(workspace_id)) with check (public.is_workspace_admin(workspace_id));
 create policy "members can view stores" on public.stores for select using (public.is_workspace_member(workspace_id));
