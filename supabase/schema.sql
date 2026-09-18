@@ -39,6 +39,18 @@ create table if not exists public.stores (
   unique (workspace_id, slug)
 );
 
+create table if not exists public.linktree_profiles (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id uuid not null references public.workspaces(id) on delete cascade,
+  store_id uuid references public.stores(id) on delete cascade,
+  name text not null,
+  client_name text not null,
+  slug text not null,
+  status text not null default 'Activo' check (status in ('Activo', 'Pausado')),
+  created_at timestamptz not null default now(),
+  unique (workspace_id, slug)
+);
+
 create table if not exists public.store_members (
   store_id uuid not null references public.stores(id) on delete cascade,
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -58,6 +70,7 @@ create table if not exists public.nfc_tags (
 );
 
 alter table public.nfc_tags add column if not exists store_id uuid references public.stores(id) on delete cascade;
+alter table public.nfc_tags add column if not exists profile_id uuid references public.linktree_profiles(id) on delete set null;
 
 do $$
 declare workspace_row record;
@@ -78,6 +91,19 @@ end $$;
 alter table public.nfc_tags add column if not exists slug text;
 create unique index if not exists nfc_tags_slug_unique on public.nfc_tags (lower(slug)) where slug is not null;
 
+insert into public.linktree_profiles (workspace_id, store_id, name, client_name, slug)
+select t.workspace_id, t.store_id, t.name, t.client_name, t.slug
+from public.nfc_tags t
+where t.slug is not null
+  and not exists (select 1 from public.linktree_profiles p where p.workspace_id = t.workspace_id and lower(p.slug) = lower(t.slug));
+
+update public.nfc_tags t
+set profile_id = p.id
+from public.linktree_profiles p
+where t.profile_id is null
+  and t.workspace_id = p.workspace_id
+  and lower(t.slug) = lower(p.slug);
+
 create table if not exists public.nfc_links (
   id uuid primary key default gen_random_uuid(),
   tag_id uuid not null references public.nfc_tags(id) on delete cascade,
@@ -87,6 +113,12 @@ create table if not exists public.nfc_links (
   active boolean not null default true,
   created_at timestamptz not null default now()
 );
+
+alter table public.nfc_links add column if not exists profile_id uuid references public.linktree_profiles(id) on delete cascade;
+update public.nfc_links l
+set profile_id = t.profile_id
+from public.nfc_tags t
+where l.profile_id is null and l.tag_id = t.id and t.profile_id is not null;
 
 create table if not exists public.nfc_link_clicks (
   id uuid primary key default gen_random_uuid(),
@@ -125,6 +157,7 @@ create trigger on_auth_user_created
   for each row execute procedure public.bootstrap_first_user();
 
 alter table public.workspaces enable row level security;
+alter table public.linktree_profiles enable row level security;
 alter table public.workspace_members enable row level security;
 alter table public.stores enable row level security;
 alter table public.store_members enable row level security;
@@ -160,6 +193,8 @@ drop policy if exists "members can view workspace members" on public.workspace_m
 drop policy if exists "admins can manage workspace members" on public.workspace_members;
 drop policy if exists "admins can update workspace members" on public.workspace_members;
 drop policy if exists "members can view workspaces" on public.workspaces;
+drop policy if exists "members can view profiles" on public.linktree_profiles;
+drop policy if exists "admins can manage profiles" on public.linktree_profiles;
 drop policy if exists "members can view tags" on public.nfc_tags;
 drop policy if exists "admins can manage tags" on public.nfc_tags;
 drop policy if exists "admins can insert tags" on public.nfc_tags;
@@ -173,8 +208,11 @@ drop policy if exists "admins can update links" on public.nfc_links;
 drop policy if exists "admins can delete links" on public.nfc_links;
 drop policy if exists "members can view scans" on public.nfc_scans;
 drop policy if exists "public can register scans" on public.nfc_scans;
+drop policy if exists "members can view link clicks" on public.nfc_link_clicks;
 
 create policy "members can view workspaces" on public.workspaces for select using (public.is_workspace_member(id));
+create policy "members can view profiles" on public.linktree_profiles for select using (public.is_workspace_member(workspace_id) and (public.is_workspace_admin(workspace_id) or public.is_store_member(store_id)));
+create policy "admins can manage profiles" on public.linktree_profiles for all using (public.can_manage_store(store_id)) with check (public.can_manage_store(store_id));
 create policy "members can view workspace members" on public.workspace_members for select using (public.is_workspace_member(workspace_id));
 create policy "admins can update workspace members" on public.workspace_members for update using (public.is_workspace_admin(workspace_id)) with check (public.is_workspace_admin(workspace_id));
 create policy "members can view stores" on public.stores for select using (public.is_workspace_member(workspace_id));
@@ -183,24 +221,25 @@ create policy "members can view tags" on public.nfc_tags for select using (publi
 create policy "admins can insert tags" on public.nfc_tags for insert with check (public.is_workspace_admin(workspace_id) or (public.is_store_member(store_id) and exists (select 1 from public.stores s where s.id = store_id and s.workspace_id = workspace_id)));
 create policy "admins can update tags" on public.nfc_tags for update using (public.can_manage_store(store_id)) with check (public.can_manage_store(store_id));
 create policy "admins can delete tags" on public.nfc_tags for delete using (public.can_manage_store(store_id));
-create policy "admins can insert links" on public.nfc_links for insert with check (exists (select 1 from public.nfc_tags t where t.id = tag_id and public.is_workspace_admin(t.workspace_id)));
-drop policy if exists "admins can insert links" on public.nfc_links;
 create policy "admins can insert links" on public.nfc_links for insert with check (exists (select 1 from public.nfc_tags t where t.id = tag_id and public.can_manage_store(t.store_id)));
 create policy "members can view links" on public.nfc_links for select using (exists (select 1 from public.nfc_tags t where t.id = tag_id and public.can_manage_store(t.store_id)));
 create policy "admins can update links" on public.nfc_links for update using (exists (select 1 from public.nfc_tags t where t.id = tag_id and public.can_manage_store(t.store_id))) with check (exists (select 1 from public.nfc_tags t where t.id = tag_id and public.can_manage_store(t.store_id)));
 create policy "admins can delete links" on public.nfc_links for delete using (exists (select 1 from public.nfc_tags t where t.id = tag_id and public.can_manage_store(t.store_id)));
 create policy "members can view scans" on public.nfc_scans for select using (exists (select 1 from public.nfc_tags t where t.id = nfc_scans.tag_id and public.can_manage_store(t.store_id)));
 drop policy if exists "public can register scans" on public.nfc_scans;
+create policy "members can view link clicks" on public.nfc_link_clicks for select using (exists (select 1 from public.nfc_links l join public.nfc_tags t on t.id = l.tag_id where l.id = nfc_link_clicks.link_id and public.can_manage_store(t.store_id)));
 
 create or replace function public.get_public_tag(tag_slug text)
 returns jsonb language sql security definer set search_path = public as $$
   select jsonb_build_object(
-    'tag', jsonb_build_object('name', t.name, 'client_name', t.client_name),
+    'tag', jsonb_build_object('name', p.name, 'client_name', p.client_name),
     'links', coalesce(jsonb_agg(jsonb_build_object('id', l.id, 'label', l.label, 'url', l.url) order by l.position) filter (where l.id is not null), '[]'::jsonb)
   )
-  from public.nfc_tags t left join public.nfc_links l on l.tag_id = t.id and l.active = true
+  from public.nfc_tags t
+  join public.linktree_profiles p on p.id = t.profile_id and p.status = 'Activo'
+  left join public.nfc_links l on l.profile_id = p.id and l.active = true
   where lower(t.slug) = lower(tag_slug) and t.status = 'Activo'
-  group by t.id;
+  group by p.id;
 $$;
 
 create or replace function public.register_nfc_scan(tag_slug text, visitor text default null)
@@ -217,7 +256,7 @@ $$;
 create or replace function public.register_link_click(link uuid, visitor text default null)
 returns boolean language plpgsql security definer set search_path = public as $$
 begin
-  if not exists (select 1 from public.nfc_links l join public.nfc_tags t on t.id = l.tag_id where l.id = link and l.active and t.status = 'Activo') then return false; end if;
+  if not exists (select 1 from public.nfc_links l join public.linktree_profiles p on p.id = l.profile_id where l.id = link and l.active and p.status = 'Activo') then return false; end if;
   insert into public.nfc_link_clicks (link_id, visitor_id) values (link, nullif(left(visitor, 128), ''));
   return true;
 end;
