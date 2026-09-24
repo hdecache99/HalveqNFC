@@ -7,7 +7,7 @@ interface ImportMetaEnv {
 
 interface Window {
   NDEFReader?: new () => {
-    scan: () => Promise<void>
+    scan: (options?: { signal?: AbortSignal }) => Promise<void>
     onreading: ((event: { message: { records: Array<{ recordType?: string; data?: ArrayBuffer; mediaType?: string; id?: string }> } }) => void) | null
   }
 }
