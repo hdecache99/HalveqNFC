@@ -280,3 +280,11 @@ $$;
 grant execute on function public.get_public_tag(text) to anon, authenticated;
 grant execute on function public.register_nfc_scan(text, text) to anon, authenticated;
 grant execute on function public.register_link_click(uuid, text) to anon, authenticated;
+
+create or replace function public.get_auth_user_id_by_email(target_email text)
+returns uuid language sql security definer set search_path = public, auth as $$
+  select id from auth.users where lower(email) = lower(target_email) limit 1;
+$$;
+
+revoke execute on function public.get_auth_user_id_by_email(text) from public, anon, authenticated;
+grant execute on function public.get_auth_user_id_by_email(text) to service_role;

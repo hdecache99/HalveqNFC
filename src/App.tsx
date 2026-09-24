@@ -241,9 +241,14 @@ function AdminsView({ admins, setAdmins, showNotice, workspaceId }: { admins: Ad
   const addAdmin = async (event: FormEvent) => {
     event.preventDefault()
     if (!workspaceId || !supabase) return
-    const { error } = await supabase.functions.invoke('invite-user', { body: { workspaceId, name, email, role } })
-    if (error) { showNotice(error.message); return }
-    setName(''); setEmail(''); setNewAdmin(false); showNotice('Invitación enviada correctamente')
+    const { data, error } = await supabase.functions.invoke('invite-user', { body: { workspaceId, name, email, role } })
+    if (error) {
+      const details = error.context instanceof Response ? await error.context.json().catch(() => null) : null
+      showNotice(details?.error ?? error.message); return
+    }
+    const member = data.member as AdminUser
+    setAdmins((current) => [...current.filter((item) => item.id !== member.id), member])
+    setName(''); setEmail(''); setNewAdmin(false); showNotice(data.existing ? 'Usuario agregado al workspace' : 'Invitación enviada correctamente')
   }
 
   const updateMember = async (id: string, changes: Partial<AdminUser>) => {
