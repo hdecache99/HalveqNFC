@@ -27,7 +27,7 @@ export function ProfilesView({ app }: { app: AppContext }) {
 
   return <div className="admin-page">
     <section className="page-heading"><div><p className="eyebrow">LINKTREE</p><h1>Perfiles y enlaces <span>✦</span></h1><p className="subheading">El perfil es la página que ve tu cliente al acercar su celular a la placa. Personalízalo con tu marca.</p></div><button className="primary-button" onClick={() => setCreating(true)}><Plus size={17} /> Nuevo perfil</button></section>
-    {app.profiles.length > 1 && <div className="profile-tabs">{app.profiles.map((profile) => <button key={profile.id} className={profile.id === selected?.id ? 'selected' : ''} onClick={() => setSelectedId(profile.id)}>{profile.logo_url ? <img src={profile.logo_url} alt="" /> : <span style={{ background: profile.button_color }} />}{profile.client_name} · {profile.name}{profile.status === 'Pausado' && <em>Pausado</em>}</button>)}</div>}
+    {app.profiles.length > 1 && <div className="profile-tabs">{app.profiles.map((profile) => <button key={profile.id} className={profile.id === selected?.id ? 'selected' : ''} onClick={() => setSelectedId(profile.id)}>{profile.logo_url ? <img src={profile.logo_url} alt="" /> : <span style={{ background: profile.button_color }} />}{profile.client_name} · {profile.name}{profile.status === 'Pausado' && <em>Pausado</em>}{profile.redirect_link_id && <em>Redirección</em>}</button>)}</div>}
     {selected ? <ProfileEditor key={selected.id} app={app} profile={selected} tab={tab} setTab={setTab} onDeleted={() => setSelectedId('')} /> : <section className="panel empty-panel"><h2>Aún no tienes perfiles</h2><p className="modal-copy">Crea tu primer perfil para empezar a personalizar la página que verán tus clientes.</p><button className="primary-button" onClick={() => setCreating(true)}><Plus size={16} /> Crear perfil</button></section>}
     {creating && <NewProfileModal app={app} onClose={() => setCreating(false)} onCreated={(id) => { setSelectedId(id); setTab('diseno'); setCreating(false) }} />}
   </div>
@@ -39,6 +39,7 @@ function ProfileEditor({ app, profile, tab, setTab, onDeleted }: { app: AppConte
   const dirty = JSON.stringify(design) !== JSON.stringify(pickDesign(profile))
   const profileLinks = app.links.filter((link) => link.profile_id === profile.id).sort((first, second) => first.position - second.position)
   const usedBy = app.tags.filter((tag) => tag.profile_id === profile.id)
+  const redirectTarget = profileLinks.find((link) => link.id === profile.redirect_link_id && link.active)
   const update = (changes: Partial<ProfileDesign>) => setDesign((current) => ({ ...current, ...changes }))
 
   const saveProfile = async (changes: Partial<LinktreeProfile>, message: string) => {
@@ -60,13 +61,14 @@ function ProfileEditor({ app, profile, tab, setTab, onDeleted }: { app: AppConte
     <div className="profile-editor-main panel">
       <div className="editor-tabs" role="tablist">{([['diseno', 'Diseño'], ['enlaces', `Enlaces (${profileLinks.length})`], ['datos', 'Datos del perfil']] as const).map(([key, label]) => <button key={key} role="tab" aria-selected={tab === key} className={tab === key ? 'selected' : ''} onClick={() => setTab(key)}>{label}</button>)}</div>
       {tab === 'diseno' && <DesignForm app={app} profile={profile} design={design} update={update} />}
-      {tab === 'enlaces' && <LinksEditor app={app} profile={profile} links={profileLinks} />}
+      {tab === 'enlaces' && <LinksEditor app={app} profile={profile} links={profileLinks} saveProfile={saveProfile} />}
       {tab === 'datos' && <ProfileDataForm app={app} profile={profile} usedBy={usedBy.map((tag) => tag.name)} saveProfile={saveProfile} onDeleted={onDeleted} />}
     </div>
     <aside className="profile-preview-column">
       <div className="preview-label"><span>Vista previa</span>{dirty && <em>Cambios sin guardar</em>}</div>
       <div className="phone-frame"><div className="phone-screen" style={profileBackground(design)}><ProfileCard design={design} title={profile.name} businessName={profile.client_name} links={profileLinks.filter((link) => link.active)} onLinkClick={() => undefined} footer={<small className="profile-footer">Enlaces · por PulseTag</small>} /></div></div>
       {tab === 'diseno' && <div className="preview-actions"><button className="primary-button" onClick={() => void saveDesign()} disabled={!dirty || saving}><Save size={15} /> {saving ? 'Guardando...' : 'Guardar diseño'}</button>{dirty && <button className="outline-button" onClick={() => setDesign(pickDesign(profile))}>Descartar</button>}</div>}
+      {redirectTarget && <p className="preview-note"><strong>Redirección activa:</strong> al escanear se abre directo "{redirectTarget.label}". Esta vista previa solo se ve si vuelves a la página de enlaces.</p>}
       <p className="preview-note">{usedBy.length ? `Lo abren ${usedBy.length} tag${usedBy.length === 1 ? '' : 's'}: ${usedBy.map((tag) => tag.name).join(', ')}` : 'Ningún tag abre este perfil todavía. Asígnalo en "Tags NFC".'}</p>
     </aside>
   </div>
@@ -114,7 +116,7 @@ function DesignForm({ app, profile, design, update }: { app: AppContext; profile
   </div>
 }
 
-function LinksEditor({ app, profile, links }: { app: AppContext; profile: LinktreeProfile; links: ManagedLink[] }) {
+function LinksEditor({ app, profile, links, saveProfile }: { app: AppContext; profile: LinktreeProfile; links: ManagedLink[]; saveProfile: (changes: Partial<LinktreeProfile>, message: string) => Promise<boolean> }) {
   const [label, setLabel] = useState('')
   const [url, setUrl] = useState('')
   const [saving, setSaving] = useState(false)
@@ -163,9 +165,11 @@ function LinksEditor({ app, profile, links }: { app: AppContext; profile: Linktr
     const { error } = await supabase.from('nfc_links').delete().eq('id', link.id)
     if (error) { app.notify(errorMessage(error)); return }
     app.setLinks((current) => current.filter((item) => item.id !== link.id)); app.notify('Enlace eliminado')
+    if (profile.redirect_link_id === link.id) app.setProfiles((current) => current.map((item) => item.id === profile.id ? { ...item, redirect_link_id: null } : item))
   }
 
   return <div className="links-editor">
+    <RedirectMode profile={profile} links={links} saveProfile={saveProfile} />
     <form className="link-add" onSubmit={addLink}><input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Texto del botón (ej. Instagram)" required maxLength={80} /><input value={url} onChange={(event) => setUrl(event.target.value)} placeholder="instagram.com/tu-negocio" required /><button className="primary-button" type="submit" disabled={saving}><Plus size={15} /> Agregar</button></form>
     <p className="field-hint">Tip: para WhatsApp usa <code>wa.me/521XXXXXXXXXX</code>, para llamar <code>tel:+52...</code>. Los cambios en un enlace se guardan al salir del campo.</p>
     <div className="link-list">{links.map((link, index) => {
@@ -179,6 +183,33 @@ function LinksEditor({ app, profile, links }: { app: AppContext; profile: Linktr
       </div>
     })}{!links.length && <p className="empty-state">Este perfil aún no tiene enlaces. Agrega el primero arriba.</p>}</div>
   </div>
+}
+
+function RedirectMode({ profile, links, saveProfile }: { profile: LinktreeProfile; links: ManagedLink[]; saveProfile: (changes: Partial<LinktreeProfile>, message: string) => Promise<boolean> }) {
+  const target = links.find((link) => link.id === profile.redirect_link_id)
+  const activeLinks = links.filter((link) => link.active)
+  const redirecting = Boolean(profile.redirect_link_id)
+
+  const enableRedirect = () => {
+    const first = activeLinks[0]
+    if (first) void saveProfile({ redirect_link_id: first.id }, `Ahora los tags abren directo "${first.label}"`)
+  }
+
+  return <section className="redirect-mode">
+    <h3>Al escanear la placa</h3>
+    <div className="segmented">
+      <button className={redirecting ? '' : 'selected'} onClick={() => redirecting && void saveProfile({ redirect_link_id: null }, 'Los tags vuelven a mostrar la página de enlaces')}>Mostrar página de enlaces</button>
+      <button className={redirecting ? 'selected' : ''} onClick={() => !redirecting && enableRedirect()} disabled={!activeLinks.length}>Ir directo a un enlace</button>
+    </div>
+    {redirecting
+      ? <>
+        <select value={profile.redirect_link_id ?? ''} onChange={(event) => { const link = links.find((item) => item.id === event.target.value); if (link) void saveProfile({ redirect_link_id: link.id }, `Ahora los tags abren directo "${link.label}"`) }}>
+          {links.map((link) => <option key={link.id} value={link.id} disabled={!link.active}>{link.label}{link.active ? '' : ' (oculto)'}</option>)}
+        </select>
+        <p className={`field-hint ${target && !target.active ? 'redirect-warning' : ''}`}>{target && !target.active ? 'Este enlace está oculto, así que por ahora se muestra la página de enlaces. Hazlo visible o elige otro.' : 'La visita se cuenta en tu analítica y el cliente llega directo al enlace, sin ver la página. Puedes regresar a la página de enlaces cuando quieras.'}</p>
+      </>
+      : <p className="field-hint">{activeLinks.length ? 'El cliente ve tu página con todos los enlaces visibles.' : 'Agrega un enlace visible para poder redirigir directo a él.'}</p>}
+  </section>
 }
 
 function ProfileDataForm({ app, profile, usedBy, saveProfile, onDeleted }: { app: AppContext; profile: LinktreeProfile; usedBy: string[]; saveProfile: (changes: Partial<LinktreeProfile>, message: string) => Promise<boolean>; onDeleted: () => void }) {

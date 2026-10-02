@@ -147,6 +147,11 @@ a.row-action { display: grid; }
 .profile-card h1 { font: 700 24px 'Space Grotesk', sans-serif; letter-spacing: -.5px; margin: 0; color: inherit; }
 .profile-title { margin: 4px 0 0; font-size: 13px; opacity: .75; }
 .profile-bio { margin: 12px 0 0; font-size: 13px; line-height: 1.55; opacity: .85; max-width: 340px; white-space: pre-line; }
+.redirect-fallback { margin-top: 22px; font-size: 12px; opacity: .7; }
+.redirect-mode { display: grid; gap: 10px; padding: 14px; margin-bottom: 16px; border: 1px solid #e6e3da; border-radius: 10px; background: #faf9f4; }
+.redirect-mode h3 { margin: 0; font-size: 13px; }
+.redirect-mode select { max-width: 360px; }
+.redirect-warning { color: #b4542f; }
 .profile-links { display: grid; gap: 11px; width: 100%; margin-top: 26px; }
 .profile-links a { display: flex; align-items: center; justify-content: space-between; gap: 8px; text-decoration: none; padding: 15px 18px; font-size: 13px; font-weight: 700; box-shadow: 0 4px 14px #0000001a; transition: transform .15s ease, box-shadow .15s ease; }
 .profile-links a:hover { transform: translateY(-2px); box-shadow: 0 8px 20px #00000026; }

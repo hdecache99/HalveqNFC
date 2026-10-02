@@ -1,10 +1,14 @@
 import { useEffect, useState } from 'react'
 import { QrCode } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { initials } from '../lib/format'
 import { ProfileCard, profileBackground } from '../components/ProfileCard'
 import { DEFAULT_DESIGN, type ProfileDesign, type PublicLink } from '../types'
 
-type PublicProfile = { tag: { name: string; client_name: string }; design?: ProfileDesign; links: PublicLink[] }
+type PublicProfile = { tag: { name: string; client_name: string }; design?: ProfileDesign; links: PublicLink[]; redirect?: PublicLink | null }
+
+// Espera a que se registren las estadísticas, pero nunca más de este tiempo antes de redirigir.
+const REDIRECT_WAIT_MS = 700
 
 export function PublicTagPage({ slug }: { slug: string }) {
   const [profile, setProfile] = useState<PublicProfile | null>(null)
@@ -14,10 +18,16 @@ export function PublicTagPage({ slug }: { slug: string }) {
     if (!supabase) { setError('El servicio no está configurado.'); return }
     let visitorKey: string = crypto.randomUUID()
     try { visitorKey = localStorage.getItem('pulsetag-visitor') ?? visitorKey; localStorage.setItem('pulsetag-visitor', visitorKey) } catch { /* almacenamiento bloqueado */ }
-    void supabase.rpc('register_nfc_scan', { tag_slug: slug, visitor: visitorKey })
-    supabase.rpc('get_public_tag', { tag_slug: slug }).then(({ data, error: rpcError }) => {
-      if (rpcError || !data) setError('Este perfil no existe o está pausado.')
-      else setProfile(data as PublicProfile)
+    const client = supabase
+    const scan = client.rpc('register_nfc_scan', { tag_slug: slug, visitor: visitorKey })
+    client.rpc('get_public_tag', { tag_slug: slug }).then(async ({ data, error: rpcError }) => {
+      if (rpcError || !data) { setError('Este perfil no existe o está pausado.'); return }
+      const result = data as PublicProfile
+      setProfile(result)
+      if (!result.redirect) return
+      const click = client.rpc('register_link_click', { link: result.redirect.id, visitor: visitorKey })
+      await Promise.race([Promise.allSettled([scan, click]), new Promise((resolve) => setTimeout(resolve, REDIRECT_WAIT_MS))])
+      window.location.replace(result.redirect.url)
     })
   }, [slug])
 
@@ -48,5 +58,6 @@ export function PublicTagPage({ slug }: { slug: string }) {
   if (error || !profile) return <main className="public-tag-page"><div className="public-card"><span className="brand-mark"><QrCode size={21} /></span>{error ? <><h1>Perfil no disponible</h1><p>{error}</p></> : <p>Cargando perfil...</p>}</div></main>
 
   const design = { ...DEFAULT_DESIGN, ...profile.design }
+  if (profile.redirect) return <main className="public-tag-page" style={profileBackground(design)}><div className="profile-card redirecting" style={{ color: design.text_color }}>{design.logo_url ? <img className="profile-logo" src={design.logo_url} alt={`Logo de ${profile.tag.client_name}`} /> : <span className="profile-logo placeholder" style={{ background: design.button_color, color: design.button_text_color }}>{initials(profile.tag.client_name)}</span>}<h1>{profile.tag.client_name}</h1><p className="profile-bio">Abriendo {profile.redirect.label}...</p><a className="redirect-fallback" href={profile.redirect.url} style={{ color: design.text_color }}>Si no se abre, toca aquí</a></div></main>
   return <main className="public-tag-page" style={profileBackground(design)}><ProfileCard design={design} title={profile.tag.name} businessName={profile.tag.client_name} links={profile.links} onLinkClick={registerClick} footer={<small className="profile-footer">Enlaces · por PulseTag</small>} /></main>
 }

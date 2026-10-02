@@ -19,7 +19,7 @@ export type ProfileDesign = {
   button_text_color: string
   button_shape: 'rounded' | 'pill' | 'square'
 }
-export type LinktreeProfile = ProfileDesign & { id: string; name: string; client_name: string; slug: string; status: 'Activo' | 'Pausado'; store_id: string | null }
+export type LinktreeProfile = ProfileDesign & { id: string; name: string; client_name: string; slug: string; status: 'Activo' | 'Pausado'; store_id: string | null; redirect_link_id: string | null }
 
 export type NfcTag = { id: string; name: string; client_name: string; destination_url: string; status: 'Activo' | 'Pausado'; slug: string | null; store_id: string | null; profile_id: string | null; created_at: string }
 export type Scan = { id: string; tag_id: string; scanned_at: string; source: string; visitor_id: string | null }
@@ -31,7 +31,7 @@ export type Session = { userId: string; email: string; name: string; isPlatformA
 
 export type ViewKey = 'resumen' | 'tags' | 'perfiles' | 'analitica' | 'equipo' | 'empresas' | 'configuracion' | 'tutorial'
 
-export const PROFILE_COLUMNS = 'id, name, client_name, slug, status, store_id, logo_url, bio, bg_style, bg_color, bg_color_2, bg_image_url, text_color, button_color, button_text_color, button_shape'
+export const PROFILE_COLUMNS = 'id, name, client_name, slug, status, store_id, logo_url, bio, bg_style, bg_color, bg_color_2, bg_image_url, text_color, button_color, button_text_color, button_shape, redirect_link_id'
 export const TAG_COLUMNS = 'id, name, client_name, destination_url, status, slug, store_id, profile_id, created_at'
 export const LINK_COLUMNS = 'id, tag_id, profile_id, label, url, position, active'
 
